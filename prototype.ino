@@ -12,8 +12,20 @@ const unsigned long debounceTime = 10; // milliseconds to ignore hits after trig
 bool armed = true;
 unsigned long lastHitTime = 0;
 
+// Button configuration
+const int buttonPin = A1;
+const int buttonMidiNote = 37;  // C#2 (or choose your preferred note)
+const int buttonMidiChannel = 0; // Channel 1
+const unsigned long buttonDebounceTime = 50; // milliseconds for button debouncing
+
+bool buttonState = HIGH;        // Current button state (HIGH = not pressed, LOW = pressed)
+bool lastButtonState = HIGH;    // Previous button state
+unsigned long lastButtonDebounceTime = 0;
+bool buttonNoteOn = false;      // Track if note is currently on
+
 void setup() {
   pinMode(piezoPin, INPUT);
+  pinMode(buttonPin, INPUT_PULLUP); // Enable internal pull-up resistor
 }
 
 void loop() {
@@ -44,6 +56,44 @@ void loop() {
   if (!armed && peak < releaseThreshold) {
     armed = true;
   }
+
+  // BUTTON HANDLING
+  handleButton();
+}
+
+/* -------- BUTTON HANDLING -------- */
+
+void handleButton() {
+  // Read the button state
+  int reading = digitalRead(buttonPin);
+  
+  // Debounce: check if enough time has passed since last state change
+  if (reading != lastButtonState) {
+    lastButtonDebounceTime = millis();
+  }
+  
+  // If debounce time has passed, update the button state
+  if ((millis() - lastButtonDebounceTime) > buttonDebounceTime) {
+    // State has changed
+    if (reading != buttonState) {
+      buttonState = reading;
+      
+      // Button pressed (LOW because of pull-up)
+      if (buttonState == LOW && !buttonNoteOn) {
+        noteOn(buttonMidiChannel, buttonMidiNote, 127); // Full velocity
+        MidiUSB.flush();
+        buttonNoteOn = true;
+      }
+      // Button released (HIGH)
+      else if (buttonState == HIGH && buttonNoteOn) {
+        noteOff(buttonMidiChannel, buttonMidiNote, 0);
+        MidiUSB.flush();
+        buttonNoteOn = false;
+      }
+    }
+  }
+  
+  lastButtonState = reading;
 }
 
 /* -------- PIEZO PEAK DETECTION -------- */

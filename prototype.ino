@@ -4,6 +4,10 @@ const int piezoPin = A0;
 const int midiNote = 36;        // C2
 const int midiChannel = 0;      // Channel 1
 
+const int piezoPin1 = A1;
+const int midiNote1 = 43;       // G2 (a fifth up from C2)
+const int midiChannel1 = 0;     // Channel 1
+
 const int threshold = 8;        // Sensitive
 const int releaseThreshold = 4; // Must fall below this to re-arm
 const int scanTime = 5000;      // microseconds for peak scan (increased for better detection)
@@ -11,6 +15,9 @@ const unsigned long debounceTime = 10; // milliseconds to ignore hits after trig
 
 bool armed = true;
 unsigned long lastHitTime = 0;
+
+bool armed1 = true;
+unsigned long lastHitTime1 = 0;
 
 // Button configuration
 const int buttonPin = A2;
@@ -25,13 +32,15 @@ bool buttonNoteOn = false;      // Track if note is currently on
 
 void setup() {
   pinMode(piezoPin, INPUT);
+  pinMode(piezoPin1, INPUT);
   pinMode(buttonPin, INPUT_PULLUP); // Enable internal pull-up resistor
 }
 
 void loop() {
-  int peak = readPiezoPeak();
+  int peak = readPiezoPeak(piezoPin);
+  int peak1 = readPiezoPeak(piezoPin1);
 
-  // FIRE (only once per hit)
+  // FIRE A0 (only once per hit)
   if (armed && peak > threshold) {
     // Debounce: ignore if too soon after last hit
     unsigned long currentTime = millis();
@@ -52,9 +61,35 @@ void loop() {
     }
   }
 
-  // RE-ARM once the piezo settles
+  // RE-ARM A0 once the piezo settles
   if (!armed && peak < releaseThreshold) {
     armed = true;
+  }
+
+  // FIRE A1 (only once per hit)
+  if (armed1 && peak1 > threshold) {
+    // Debounce: ignore if too soon after last hit
+    unsigned long currentTime = millis();
+    if (currentTime - lastHitTime1 > debounceTime) {
+      int velocity = map(peak1, threshold, 600, 15, 127);
+      velocity = constrain(velocity, 1, 127);
+
+      noteOn(midiChannel1, midiNote1, velocity);
+      MidiUSB.flush();
+
+      delay(6);
+
+      noteOff(midiChannel1, midiNote1, 0);
+      MidiUSB.flush();
+
+      lastHitTime1 = currentTime;
+      armed1 = false; // disarm until vibration stops
+    }
+  }
+
+  // RE-ARM A1 once the piezo settles
+  if (!armed1 && peak1 < releaseThreshold) {
+    armed1 = true;
   }
 
   // BUTTON HANDLING
@@ -98,12 +133,12 @@ void handleButton() {
 
 /* -------- PIEZO PEAK DETECTION -------- */
 
-int readPiezoPeak() {
+int readPiezoPeak(int pin) {
   int peak = 0;
   unsigned long start = micros();
 
   while (micros() - start < scanTime) {
-    int val = analogRead(piezoPin);
+    int val = analogRead(pin);
     if (val > peak) peak = val;
   }
 
@@ -121,4 +156,3 @@ void noteOff(byte channel, byte pitch, byte velocity) {
   midiEventPacket_t event = {0x08, 0x80 | channel, pitch, velocity};
   MidiUSB.sendMIDI(event);
 }
-

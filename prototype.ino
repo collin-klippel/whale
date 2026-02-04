@@ -13,7 +13,7 @@ bool armed = true;
 unsigned long lastHitTime = 0;
 
 // Button configuration
-const int buttonPin = A1;
+const int buttonPin = A2;
 const int buttonMidiNote = 37;  // C#2 (or choose your preferred note)
 const int buttonMidiChannel = 0; // Channel 1
 const unsigned long buttonDebounceTime = 50; // milliseconds for button debouncing

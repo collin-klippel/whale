@@ -8,7 +8,7 @@ const int piezoMidiChannel = 0;  // Channel 1
 
 const int threshold = 8;        // Sensitive
 const int releaseThreshold = 4; // Must fall below this to re-arm
-const int scanTime = 5000;      // microseconds for peak scan (increased for better detection)
+const int scanTime = 10;      // microseconds for peak scan (increased for better detection)
 const unsigned long debounceTime = 10; // milliseconds to ignore hits after trigger
 
 bool piezoArmed[numPiezos] = {true, true, true, true, true, true};

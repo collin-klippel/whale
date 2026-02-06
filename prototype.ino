@@ -1,134 +1,114 @@
 #include <MIDIUSB.h>
 
-const int piezoPin = A0;
-const int midiNote = 36;        // C2
-const int midiChannel = 0;      // Channel 1
-
-const int piezoPin1 = A1;
-const int midiNote1 = 43;       // G2 (a fifth up from C2)
-const int midiChannel1 = 0;     // Channel 1
+// Piezo configuration: Analog inputs 0-5 (A0-A5)
+const int numPiezos = 6;
+const int piezoPins[numPiezos] = {A0, A1, A2, A3, A4, A5};
+const int piezoMidiNotes[numPiezos] = {36, 37, 38, 39, 40, 41}; // C2, C#2, D2, D#2, E2, F2
+const int piezoMidiChannel = 0;  // Channel 1
 
 const int threshold = 8;        // Sensitive
 const int releaseThreshold = 4; // Must fall below this to re-arm
 const int scanTime = 5000;      // microseconds for peak scan (increased for better detection)
 const unsigned long debounceTime = 10; // milliseconds to ignore hits after trigger
 
-bool armed = true;
-unsigned long lastHitTime = 0;
+bool piezoArmed[numPiezos] = {true, true, true, true, true, true};
+unsigned long lastHitTime[numPiezos] = {0, 0, 0, 0, 0, 0};
 
-bool armed1 = true;
-unsigned long lastHitTime1 = 0;
-
-// Button configuration
-const int buttonPin = A2;
-const int buttonMidiNote = 37;  // C#2 (or choose your preferred note)
+// Button configuration: Analog inputs 6-11 (A6-A11)
+const int numButtons = 6;
+const int buttonPins[numButtons] = {A6, A7, A8, A9, A10, A11};
+const int buttonMidiNotes[numButtons] = {42, 43, 44, 45, 46, 47}; // F#2, G2, G#2, A2, A#2, B2
 const int buttonMidiChannel = 0; // Channel 1
 const unsigned long buttonDebounceTime = 50; // milliseconds for button debouncing
 
-bool buttonState = HIGH;        // Current button state (HIGH = not pressed, LOW = pressed)
-bool lastButtonState = HIGH;    // Previous button state
-unsigned long lastButtonDebounceTime = 0;
-bool buttonNoteOn = false;      // Track if note is currently on
+bool buttonState[numButtons] = {HIGH, HIGH, HIGH, HIGH, HIGH, HIGH};        // Current button state (HIGH = not pressed, LOW = pressed)
+bool lastButtonState[numButtons] = {HIGH, HIGH, HIGH, HIGH, HIGH, HIGH};    // Previous button state
+unsigned long lastButtonDebounceTime[numButtons] = {0, 0, 0, 0, 0, 0};
+bool buttonNoteOn[numButtons] = {false, false, false, false, false, false};      // Track if note is currently on
 
 void setup() {
-  pinMode(piezoPin, INPUT);
-  pinMode(piezoPin1, INPUT);
-  pinMode(buttonPin, INPUT_PULLUP); // Enable internal pull-up resistor
+  // Initialize piezo pins (A0-A5)
+  for (int i = 0; i < numPiezos; i++) {
+    pinMode(piezoPins[i], INPUT);
+  }
+  
+  // Initialize button pins (A6-A11) with pull-up resistors
+  for (int i = 0; i < numButtons; i++) {
+    pinMode(buttonPins[i], INPUT_PULLUP);
+  }
 }
 
 void loop() {
-  int peak = readPiezoPeak(piezoPin);
-  int peak1 = readPiezoPeak(piezoPin1);
+  // Handle all piezos (A0-A5)
+  for (int i = 0; i < numPiezos; i++) {
+    int peak = readPiezoPeak(piezoPins[i]);
+    
+    // FIRE piezo (only once per hit)
+    if (piezoArmed[i] && peak > threshold) {
+      // Debounce: ignore if too soon after last hit
+      unsigned long currentTime = millis();
+      if (currentTime - lastHitTime[i] > debounceTime) {
+        int velocity = map(peak, threshold, 600, 15, 127);
+        velocity = constrain(velocity, 1, 127);
 
-  // FIRE A0 (only once per hit)
-  if (armed && peak > threshold) {
-    // Debounce: ignore if too soon after last hit
-    unsigned long currentTime = millis();
-    if (currentTime - lastHitTime > debounceTime) {
-      int velocity = map(peak, threshold, 600, 15, 127);
-      velocity = constrain(velocity, 1, 127);
+        noteOn(piezoMidiChannel, piezoMidiNotes[i], velocity);
+        MidiUSB.flush();
 
-      noteOn(midiChannel, midiNote, velocity);
-      MidiUSB.flush();
+        delay(6);
 
-      delay(6);
+        noteOff(piezoMidiChannel, piezoMidiNotes[i], 0);
+        MidiUSB.flush();
 
-      noteOff(midiChannel, midiNote, 0);
-      MidiUSB.flush();
+        lastHitTime[i] = currentTime;
+        piezoArmed[i] = false; // disarm until vibration stops
+      }
+    }
 
-      lastHitTime = currentTime;
-      armed = false; // disarm until vibration stops
+    // RE-ARM piezo once it settles
+    if (!piezoArmed[i] && peak < releaseThreshold) {
+      piezoArmed[i] = true;
     }
   }
 
-  // RE-ARM A0 once the piezo settles
-  if (!armed && peak < releaseThreshold) {
-    armed = true;
+  // Handle all buttons (A6-A11)
+  for (int i = 0; i < numButtons; i++) {
+    handleButton(i);
   }
-
-  // FIRE A1 (only once per hit)
-  if (armed1 && peak1 > threshold) {
-    // Debounce: ignore if too soon after last hit
-    unsigned long currentTime = millis();
-    if (currentTime - lastHitTime1 > debounceTime) {
-      int velocity = map(peak1, threshold, 600, 15, 127);
-      velocity = constrain(velocity, 1, 127);
-
-      noteOn(midiChannel1, midiNote1, velocity);
-      MidiUSB.flush();
-
-      delay(6);
-
-      noteOff(midiChannel1, midiNote1, 0);
-      MidiUSB.flush();
-
-      lastHitTime1 = currentTime;
-      armed1 = false; // disarm until vibration stops
-    }
-  }
-
-  // RE-ARM A1 once the piezo settles
-  if (!armed1 && peak1 < releaseThreshold) {
-    armed1 = true;
-  }
-
-  // BUTTON HANDLING
-  handleButton();
 }
 
 /* -------- BUTTON HANDLING -------- */
 
-void handleButton() {
+void handleButton(int buttonIndex) {
   // Read the button state
-  int reading = digitalRead(buttonPin);
+  int reading = digitalRead(buttonPins[buttonIndex]);
   
   // Debounce: check if enough time has passed since last state change
-  if (reading != lastButtonState) {
-    lastButtonDebounceTime = millis();
+  if (reading != lastButtonState[buttonIndex]) {
+    lastButtonDebounceTime[buttonIndex] = millis();
   }
   
   // If debounce time has passed, update the button state
-  if ((millis() - lastButtonDebounceTime) > buttonDebounceTime) {
+  if ((millis() - lastButtonDebounceTime[buttonIndex]) > buttonDebounceTime) {
     // State has changed
-    if (reading != buttonState) {
-      buttonState = reading;
+    if (reading != buttonState[buttonIndex]) {
+      buttonState[buttonIndex] = reading;
       
       // Button pressed (LOW because of pull-up)
-      if (buttonState == LOW && !buttonNoteOn) {
-        noteOn(buttonMidiChannel, buttonMidiNote, 127); // Full velocity
+      if (buttonState[buttonIndex] == LOW && !buttonNoteOn[buttonIndex]) {
+        noteOn(buttonMidiChannel, buttonMidiNotes[buttonIndex], 127); // Full velocity
         MidiUSB.flush();
-        buttonNoteOn = true;
+        buttonNoteOn[buttonIndex] = true;
       }
       // Button released (HIGH)
-      else if (buttonState == HIGH && buttonNoteOn) {
-        noteOff(buttonMidiChannel, buttonMidiNote, 0);
+      else if (buttonState[buttonIndex] == HIGH && buttonNoteOn[buttonIndex]) {
+        noteOff(buttonMidiChannel, buttonMidiNotes[buttonIndex], 0);
         MidiUSB.flush();
-        buttonNoteOn = false;
+        buttonNoteOn[buttonIndex] = false;
       }
     }
   }
   
-  lastButtonState = reading;
+  lastButtonState[buttonIndex] = reading;
 }
 
 /* -------- PIEZO PEAK DETECTION -------- */
